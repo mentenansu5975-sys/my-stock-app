@@ -20,23 +20,27 @@ if st.button("詳細分析を開始"):
             # 1. AIの初期設定
             genai.configure(api_key=api_key)
             
-            # --- ここから修正したモデル選択ロジック ---
-            try:
-                # 最新のFlashモデルを試行
-                model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
-                # 動作確認のために空のテストをしないよう、ここでは定義のみ
-            except:
-                # 失敗した場合は利用可能なモデルを自動取得
-                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                model = genai.GenerativeModel(available_models[0])
-            # --- ここまで ---
+            # --- 【修正】最も確実なモデル選択ロジック ---
+            with st.spinner('利用可能なAIモデルを探索中...'):
+                # 使えるモデルをすべてリストアップ
+                models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                
+                if not models:
+                    st.error("利用可能なモデルが見つかりませんでした。APIキーを確認してください。")
+                    st.stop()
+                
+                # 1.5 Flash を優先的に探し、なければリストの先頭を使う
+                target_model = next((m for m in models if "gemini-1.5-flash" in m), models[0])
+                model = genai.GenerativeModel(target_model)
+                st.write(f"使用中のAIモデル: {target_model}") # 動作確認用
+            # --- 修正完了 ---
             
             # 2. 株価データの取得
             stock = yf.Ticker(ticker)
             data = stock.history(period=period)
             
             if not data.empty:
-                # 3. テクニカル指標の計算（移動平均）
+                # 3. テクニカル指標の計算
                 data['MA5'] = data['Close'].rolling(window=5).mean()
                 data['MA25'] = data['Close'].rolling(window=25).mean()
                 
@@ -44,12 +48,12 @@ if st.button("詳細分析を開始"):
                 news = stock.news
                 news_text = ""
                 if news:
-                    for n in news[:3]: # 直近3件
+                    for n in news[:3]:
                         news_text += f"- {n.get('title', '')}\n"
                 else:
                     news_text = "直近の関連ニュースは見当たりません。"
 
-                # 5. 画面表示（チャート）
+                # 5. 画面表示
                 col1, col2 = st.columns([2, 1])
                 with col1:
                     st.subheader("株価推移と移動平均線")
@@ -64,7 +68,7 @@ if st.button("詳細分析を開始"):
                     st.write("**直近のトピックス:**")
                     st.write(news_text)
 
-                # 6. AIへの詳細な指示
+                # 6. AIへの指示
                 st.subheader("🤖 AIによる深層分析レポート")
                 recent_summary = data[['Close', 'Volume']].tail(10).to_string()
                 
@@ -83,7 +87,7 @@ if st.button("詳細分析を開始"):
                 3. 今後の短期的な見通しと、推奨する投資行動の提案。
                 """
                 
-                with st.spinner('AIが材料とチャートを分析中...'):
+                with st.spinner('AIが分析中...'):
                     response = model.generate_content(prompt)
                     st.info(response.text)
                     
@@ -92,5 +96,4 @@ if st.button("詳細分析を開始"):
         except Exception as e:
             st.error(f"エラーが発生しました: {e}")
 
-st.caption("※この分析は移動平均線とYahoo Financeニュースに基づいています。投資判断は自己責任でお願いします。")         
-      
+st.caption("※投資判断は自己責任でお願いします。")
