@@ -8,7 +8,8 @@ st.title("📈 高機能AI株価予測アシスタント")
 
 with st.sidebar:
     st.header("設定")
-    api_key = st.text_input("Gemini API Key", type="password")
+    # サイドバーから入力欄を消し、Secretsから自動読み込みする
+　  api_key = st.secrets["GEMINI_API_KEY"]
     ticker = st.text_input("銘柄コード (例: 4588.T)", value="4588.T")
     period = st.selectbox("分析期間", ["3mo", "6mo", "1y"], index=0)
 
