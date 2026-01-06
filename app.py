@@ -17,7 +17,7 @@ if st.button("分析を開始"):
     else:
         # AIの準備
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('models/gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         
         # 株価データの取得
         with st.spinner('データを取得中...'):
