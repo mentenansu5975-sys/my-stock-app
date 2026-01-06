@@ -17,27 +17,30 @@ if st.button("詳細分析を開始"):
         st.error("APIキーを入力してください。")
     else:
         try:
+            # 1. AIの初期設定
             genai.configure(api_key=api_key)
-            # 2026年現在、最もエラーが起きにくい指定方法です
-try:
-    # 1.5 Flash のフルネームで指定
-    model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
-except:
-    # 万が一上記でエラーが出る場合は、利用可能な最初のモデルを自動選択
-    available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    model = genai.GenerativeModel(available_models[0])
             
-            # 1. データの取得
-            # auto_adjust=True とマルチインデックス対策
+            # --- ここから修正したモデル選択ロジック ---
+            try:
+                # 最新のFlashモデルを試行
+                model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
+                # 動作確認のために空のテストをしないよう、ここでは定義のみ
+            except:
+                # 失敗した場合は利用可能なモデルを自動取得
+                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                model = genai.GenerativeModel(available_models[0])
+            # --- ここまで ---
+            
+            # 2. 株価データの取得
             stock = yf.Ticker(ticker)
             data = stock.history(period=period)
             
             if not data.empty:
-                # 2. テクニカル指標の計算（移動平均）
+                # 3. テクニカル指標の計算（移動平均）
                 data['MA5'] = data['Close'].rolling(window=5).mean()
                 data['MA25'] = data['Close'].rolling(window=25).mean()
                 
-                # 3. 最新ニュースの取得
+                # 4. 最新ニュースの取得
                 news = stock.news
                 news_text = ""
                 if news:
@@ -46,11 +49,10 @@ except:
                 else:
                     news_text = "直近の関連ニュースは見当たりません。"
 
-                # 4. 画面表示（チャート）
+                # 5. 画面表示（チャート）
                 col1, col2 = st.columns([2, 1])
                 with col1:
                     st.subheader("株価推移と移動平均線")
-                    # index（日付）を横軸に、Close, MA5, MA25を縦軸に
                     st.line_chart(data[['Close', 'MA5', 'MA25']])
                 
                 with col2:
@@ -62,24 +64,23 @@ except:
                     st.write("**直近のトピックス:**")
                     st.write(news_text)
 
-                # 5. AIへの詳細な指示
+                # 6. AIへの詳細な指示
                 st.subheader("🤖 AIによる深層分析レポート")
                 recent_summary = data[['Close', 'Volume']].tail(10).to_string()
                 
                 prompt = f"""
-                あなたはシニア証券アナリストです。銘柄 {ticker} について、
-                以下の「株価データ」と「最新ニュース」を基に多角的に分析してください。
+                あなたはシニア証券アナリストです。銘柄 {ticker} について分析してください。
                 
                 【株価・出来高データ（直近10日）】
                 {recent_summary}
                 
-                【最新ニュース（材料）】
+                【最新ニュース】
                 {news_text}
                 
                 【指示】
-                1. テクニカル分析（MA5とMA25の関係など）から見たトレンドを解説。
-                2. ニュースが株価に与える影響（期待値や懸念点）を考察。
-                3. 今後の短期的な見通しと、推奨する投資行動（様子見・押し目買い等）を提案。
+                1. テクニカル分析（MA5とMA25の関係）から見たトレンド解説。
+                2. ニュースが株価に与える影響の考察。
+                3. 今後の短期的な見通しと、推奨する投資行動の提案。
                 """
                 
                 with st.spinner('AIが材料とチャートを分析中...'):
@@ -91,4 +92,5 @@ except:
         except Exception as e:
             st.error(f"エラーが発生しました: {e}")
 
-st.caption("※この分析は移動平均線とYahoo Financeニュースに基づいています。")
+st.caption("※この分析は移動平均線とYahoo Financeニュースに基づいています。投資判断は自己責任でお願いします。")         
+      
