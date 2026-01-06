@@ -18,7 +18,14 @@ if st.button("詳細分析を開始"):
     else:
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            # 2026年現在、最もエラーが起きにくい指定方法です
+try:
+    # 1.5 Flash のフルネームで指定
+    model = genai.GenerativeModel('models/gemini-1.5-flash-latest')
+except:
+    # 万が一上記でエラーが出る場合は、利用可能な最初のモデルを自動選択
+    available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    model = genai.GenerativeModel(available_models[0])
             
             # 1. データの取得
             # auto_adjust=True とマルチインデックス対策
