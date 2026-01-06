@@ -3,98 +3,97 @@ import yfinance as yf
 import google.generativeai as genai
 import pandas as pd
 
+# 1. ページの設定
 st.set_page_config(page_title="AI株価予測・プロ版", layout="wide")
 st.title("📈 高機能AI株価予測アシスタント")
 
+# 2. サイドバーの設定（APIキーはSecretsから読み込むので入力欄はなし）
 with st.sidebar:
     st.header("設定")
-    # サイドバーから入力欄を消し、Secretsから自動読み込みする
-　  api_key = st.secrets["GEMINI_API_KEY"]
+    try:
+        # SecretsからAPIキーを取得
+        api_key = st.secrets["GEMINI_API_KEY"]
+    except:
+        st.error("Secretsに 'GEMINI_API_KEY' が設定されていません。")
+        st.stop()
+        
     ticker = st.text_input("銘柄コード (例: 4588.T)", value="4588.T")
     period = st.selectbox("分析期間", ["3mo", "6mo", "1y"], index=0)
 
+# 3. メイン処理
 if st.button("詳細分析を開始"):
-    if not api_key:
-        st.error("APIキーを入力してください。")
-    else:
-        try:
-            # 1. AIの初期設定
-            genai.configure(api_key=api_key)
+    try:
+        # AIの初期設定
+        genai.configure(api_key=api_key)
+        
+        # 利用可能なモデルを自動取得するロジック
+        with st.spinner('AIモデルを確認中...'):
+            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            # 1.5 Flash を優先的に探し、なければリストの先頭を使う
+            target_model = next((m for m in models if "gemini-1.5-flash" in m), models[0])
+            model = genai.GenerativeModel(target_model)
+        
+        # 株価データの取得
+        stock = yf.Ticker(ticker)
+        data = stock.history(period=period)
+        
+        if not data.empty:
+            # テクニカル指標（移動平均線）の計算
+            data['MA5'] = data['Close'].rolling(window=5).mean()
+            data['MA25'] = data['Close'].rolling(window=25).mean()
             
-            # --- 【修正】最も確実なモデル選択ロジック ---
-            with st.spinner('利用可能なAIモデルを探索中...'):
-                # 使えるモデルをすべてリストアップ
-                models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                
-                if not models:
-                    st.error("利用可能なモデルが見つかりませんでした。APIキーを確認してください。")
-                    st.stop()
-                
-                # 1.5 Flash を優先的に探し、なければリストの先頭を使う
-                target_model = next((m for m in models if "gemini-1.5-flash" in m), models[0])
-                model = genai.GenerativeModel(target_model)
-                st.write(f"使用中のAIモデル: {target_model}") # 動作確認用
-            # --- 修正完了 ---
-            
-            # 2. 株価データの取得
-            stock = yf.Ticker(ticker)
-            data = stock.history(period=period)
-            
-            if not data.empty:
-                # 3. テクニカル指標の計算
-                data['MA5'] = data['Close'].rolling(window=5).mean()
-                data['MA25'] = data['Close'].rolling(window=25).mean()
-                
-                # 4. 最新ニュースの取得
-                news = stock.news
-                news_text = ""
-                if news:
-                    for n in news[:3]:
-                        news_text += f"- {n.get('title', '')}\n"
-                else:
-                    news_text = "直近の関連ニュースは見当たりません。"
-
-                # 5. 画面表示
-                col1, col2 = st.columns([2, 1])
-                with col1:
-                    st.subheader("株価推移と移動平均線")
-                    st.line_chart(data[['Close', 'MA5', 'MA25']])
-                
-                with col2:
-                    st.subheader("現在のステータス")
-                    latest = data.iloc[-1]
-                    prev_close = data.iloc[-2]['Close']
-                    diff = latest['Close'] - prev_close
-                    st.metric("現在値", f"{latest['Close']:.1f}円", f"{diff:+.1f}円")
-                    st.write("**直近のトピックス:**")
-                    st.write(news_text)
-
-                # 6. AIへの指示
-                st.subheader("🤖 AIによる深層分析レポート")
-                recent_summary = data[['Close', 'Volume']].tail(10).to_string()
-                
-                prompt = f"""
-                あなたはシニア証券アナリストです。銘柄 {ticker} について分析してください。
-                
-                【株価・出来高データ（直近10日）】
-                {recent_summary}
-                
-                【最新ニュース】
-                {news_text}
-                
-                【指示】
-                1. テクニカル分析（MA5とMA25の関係）から見たトレンド解説。
-                2. ニュースが株価に与える影響の考察。
-                3. 今後の短期的な見通しと、推奨する投資行動の提案。
-                """
-                
-                with st.spinner('AIが分析中...'):
-                    response = model.generate_content(prompt)
-                    st.info(response.text)
-                    
+            # 最新ニュースの取得
+            news = stock.news
+            news_text = ""
+            if news:
+                for n in news[:3]:
+                    news_text += f"- {n.get('title', '')}\n"
             else:
-                st.error("データが取得できませんでした。")
-        except Exception as e:
-            st.error(f"エラーが発生しました: {e}")
+                news_text = "直近の関連ニュースは見当たりません。"
 
-st.caption("※投資判断は自己責任でお願いします。")
+            # 画面表示：左側にチャート、右側に数値
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.subheader("📊 株価推移と移動平均線")
+                st.line_chart(data[['Close', 'MA5', 'MA25']])
+            
+            with col2:
+                st.subheader("📌 現在のステータス")
+                latest = data.iloc[-1]
+                prev_close = data.iloc[-2]['Close']
+                diff = latest['Close'] - prev_close
+                st.metric("現在値", f"{latest['Close']:.1f}円", f"{diff:+.1f}円")
+                st.write("**最新トピックス:**")
+                st.write(news_text)
+
+            # AIによる分析レポート作成
+            st.subheader("🤖 AIアナリストによる詳細予測")
+            recent_summary = data[['Close', 'Volume']].tail(10).to_string()
+            
+            prompt = f"""
+            あなたはプロの証券アナリストです。銘柄 {ticker} について分析してください。
+            
+            【データ】
+            株価推移(直近10日):
+            {recent_summary}
+            
+            最新ニュース:
+            {news_text}
+            
+            【指示】
+            1. テクニカル（MA5/25）から見た現状の強弱。
+            2. ニュースが今後の材料としてどう働くか。
+            3. 短期的な展望と、投資家へのアドバイス。
+            """
+            
+            with st.spinner('AIがレポートを作成しています...'):
+                response = model.generate_content(prompt)
+                st.info(response.text)
+                
+        else:
+            st.error("株価データが見つかりませんでした。銘柄コードを確認してください。")
+            
+    except Exception as e:
+        st.error(f"実行中にエラーが発生しました: {e}")
+
+st.caption("※投資の最終決定はご自身の判断で行ってください。")
