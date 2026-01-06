@@ -23,7 +23,7 @@ def check_password():
             st.error("パスワードが正しくありません")
     return False
 
-# 3. テクニカル指標計算用関数
+# 3. テクニカル指標計算
 def add_indicators(df):
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
@@ -36,14 +36,13 @@ def add_indicators(df):
     return df
 
 if check_password():
-    st.title("🏦 AI投資顧問・エグゼクティブ版")
+    st.title("🏦 AI投資顧問・エグゼクティブ版 (FUNDAMENTALS)")
 
     with st.sidebar:
         st.header("分析条件")
         api_key = st.secrets["GEMINI_API_KEY"]
         ticker = st.text_input("銘柄コード (例: 4588.T)", value="4588.T")
-        period = st.selectbox("分析スパン", ["6mo", "1y", "2y"], index=0)
-        
+        period = st.selectbox("チャート期間", ["6mo", "1y", "2y"], index=0)
         if st.button("ログアウト"):
             st.session_state["password_correct"] = False
             st.rerun()
@@ -59,32 +58,31 @@ if check_password():
             data = stock.history(period="1y") 
             data = add_indicators(data)
             
+            # --- 【新機能】ファンダメンタルズ/IR情報の取得 ---
+            info = stock.info
+            fundamentals = {
+                "会社名": info.get('longName', 'N/A'),
+                "時価総額": f"{info.get('marketCap', 0) / 100000000:.1f} 億円",
+                "PER": info.get('trailingPE', 'N/A'),
+                "PBR": info.get('priceToBook', 'N/A'),
+                "配当利回り": f"{info.get('dividendYield', 0) * 100:.2f} %" if info.get('dividendYield') else "無配",
+                "ROE": f"{info.get('returnOnEquity', 0) * 100:.2f} %" if info.get('returnOnEquity') else "N/A",
+                "EPS": info.get('trailingEps', 'N/A'),
+                "自己資本比率": f"{info.get('debtToEquity', 0):.2f}"
+            }
+
             if not data.empty:
-                # --- 【修正箇所】ニュース取得のエラー対策 ---
+                # ニュース取得
                 news = stock.news
                 news_list = []
                 if news:
                     for n in news[:5]:
-                        title = n.get('title', 'No Title')
-                        # 日付が取得できない場合(None)への対策
                         raw_time = n.get('providerPublishTime')
-                        if raw_time:
-                            date_str = pd.to_datetime(raw_time, unit='s').strftime('%Y-%m-%d')
-                        else:
-                            date_str = "不明"
-                        news_list.append(f"- {title} ({date_str})")
+                        date_str = pd.to_datetime(raw_time, unit='s').strftime('%Y-%m-%d') if raw_time else "不明"
+                        news_list.append(f"- {n.get('title')} ({date_str})")
                     news_text = "\n".join(news_list)
                 else:
                     news_text = "直近の関連ニュースは見当たりません。"
-
-                # 統計データの算出
-                recent_3mo = data.tail(60)
-                stats = {
-                    "3ヶ月最高値": f"{recent_3mo['High'].max():.1f}",
-                    "3ヶ月最安値": f"{recent_3mo['Low'].min():.1f}", # minに修正
-                    "現在のRSI": f"{data.iloc[-1]['RSI']:.1f}",
-                    "MA75乖離率": f"{((data.iloc[-1]['Close'] / data.iloc[-1]['MA75']) - 1) * 100:.1f}%"
-                }
 
                 # 表示
                 col1, col2 = st.columns([2, 1])
@@ -95,31 +93,38 @@ if check_password():
                     st.line_chart(data['RSI'].tail(120))
                 
                 with col2:
-                    st.subheader("🔢 統計・テクニカル")
-                    for k, v in stats.items():
+                    st.subheader("🏦 ファンダメンタルズ/財務")
+                    for k, v in fundamentals.items():
                         st.write(f"**{k}**: {v}")
                     st.write("---")
-                    st.subheader("📰 最新ニュース")
+                    st.subheader("📰 直近IR/ニュース")
                     st.write(news_text)
 
                 # AIレポート作成
-                st.subheader("🤖 AIによる多角型・投資判断レポート")
+                st.subheader("🤖 AIによる財務・技術・材料の統合分析")
                 recent_1mo = data.tail(20).to_string()
                 
                 prompt = f"""
-                あなたは機関投資家向けのチーフストラテジストです。銘柄 {ticker} を分析してください。
+                あなたはプロの証券アナリストとして、{fundamentals['会社名']} ({ticker}) を分析してください。
                 
-                【直近20日のデータ】\n{recent_1mo}\n
-                【過去3ヶ月の統計】\n{stats}\n
-                【最新ニュース】\n{news_text}\n
+                【財務データ（ファンダメンタルズ）】
+                {fundamentals}
                 
-                1. トレンド分析: 短期・中長期の移動平均線から判断。
-                2. 過熱感分析: RSIと乖離率から判断。
-                3. 材料分析: ニュースが株価に与える影響。
-                4. 具体的なシナリオ: 目標値と損切りライン。
+                【テクニカル・推移】
+                直近20日の推移: {recent_1mo}
+                現在のRSI: {data.iloc[-1]['RSI']:.1f}
+                
+                【最新材料】
+                {news_text}
+                
+                【指示】
+                1. 財務健全性: PER/PBR、ROEから見て、現在の株価は割安か割高か、財務面から評価してください。
+                2. 総合判断: チャートの過熱感と、IR/ニュースの材料を総合し、今買うべきか待つべきかを結論付けてください。
+                3. リスク要因: バイオ銘柄などの場合、パイプラインや資金繰りに関する懸念点があれば指摘してください。
+                4. 目標価格設定: 直近のボラティリティから、現実的な目標値と損切りラインを算出してください。
                 """
                 
-                with st.spinner('AIが分析中...'):
+                with st.spinner('AIが財務・IR・チャートを統合分析中...'):
                     response = model.generate_content(prompt)
                     st.info(response.text)
             else:
@@ -127,4 +132,4 @@ if check_password():
         except Exception as e:
             st.error(f"エラーが発生しました: {e}")
 
-st.caption("※ニュースの日付取得エラーを修正しました。")
+st.caption("※ファンダメンタルズ（PER/PBR/時価総額など）の項目を追加しました。")
