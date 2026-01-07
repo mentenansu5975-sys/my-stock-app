@@ -12,10 +12,8 @@ import urllib.parse
 if hasattr(ssl, '_create_unverified_context'):
     ssl._create_default_https_context = ssl._create_unverified_context
 
-# 1. ページ設定
-st.set_page_config(page_title="AI投資顧問・Googleニュース連携版", layout="wide")
+st.set_page_config(page_title="AI投資顧問・安定版", layout="wide")
 
-# パスワード認証機能
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
@@ -30,110 +28,76 @@ def check_password():
     return False
 
 if check_password():
-    st.title("🏦 AI投資顧問・プロ仕様（Googleニュース＆多重取得版）")
+    st.title("🏦 AI投資顧問・プロ（エラー対策済み安定版）")
 
-    # --- サイドバー設定 ---
     with st.sidebar:
-        st.header("1. 銘柄・チャート設定")
+        st.header("1. 設定")
         api_key = st.secrets["GEMINI_API_KEY"]
         ticker = st.text_input("銘柄コード (例: 4592.T)", value="4592.T")
-        
-        period_choice = st.selectbox(
-            "チャート表示期間",
-            options=["1mo", "3mo", "6mo", "1y", "2y", "5y"],
-            format_func=lambda x: {"1mo":"1ヶ月", "3mo":"3ヶ月", "6mo":"半年", "1y":"1年", "2y":"2年", "5y":"5年"}[x],
-            index=3
-        )
-        
-        st.header("2. 資料アップロード")
-        uploaded_file = st.file_uploader("決算資料PDFを読み込む", type="pdf")
-        
-        st.header("3. 外部・ニュース設定")
-        code_only = ticker.split('.')[0]
-        st.markdown(f"👉 [株探で最新情報を開く](https://kabutan.jp/stock/news?code={code_only})")
-        
-        rss_on = st.checkbox("Googleニュース自動取得を有効化", value=True)
+        period_choice = st.selectbox("期間", ["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=3)
+        uploaded_file = st.file_uploader("PDFを選択", type="pdf")
+        st.markdown(f"👉 [株探で最新情報を開く](https://kabutan.jp/stock/news?code={ticker.split('.')[0]})")
 
-    # --- メイン画面：手動入力欄 ---
-    st.subheader("📝 最新ニュース・IR本文（コピペ用）")
-    manual_news = st.text_area("株探などの詳細なニュース本文をここに貼ると、AIの分析精度が最大化されます。", height=100)
+    st.subheader("📝 最新ニュース本文（コピペ）")
+    manual_news = st.text_area("詳細情報をここに貼ると精度が上がります", height=100)
 
-    # --- 分析実行 ---
     if st.button("総合分析を開始"):
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-flash-latest')
+            model = genai.GenerativeModel('gemini-1.5-flash')
             
-            # 1. 株価データ取得
             stock = yf.Ticker(ticker)
             data = stock.history(period=period_choice)
-            stock_info = stock.info
-            company_name = stock_info.get('longName', ticker)
             
-            # 2. 多重ニュース取得ロジック（GoogleニュースRSS & Yahoo Finance）
             combined_news = ""
-            if rss_on:
-                with st.spinner('最新ニュースを検索中...'):
-                    # A. Yahoo Finance ニュース
-                    try:
-                        yf_news = stock.news
-                        if yf_news:
-                            for n in yf_news[:5]:
-                                combined_news += f"- [Yahoo] {n.get('title')}\n"
-                    except: pass
-                    
-                    # B. GoogleニュースRSS (キーワード検索)
-                    try:
-                        query = urllib.parse.quote(f"{company_name} ニュース")
-                        gn_url = f"https://news.google.com/rss/search?q={query}&hl=ja&gl=JP&ceid=JP:ja"
-                        feed = feedparser.parse(gn_url)
-                        for entry in feed.entries[:8]:
-                            combined_news += f"- [Google] {entry.title}\n"
-                    except: pass
+            # Yahooニュース取得
+            try:
+                yf_news = stock.news
+                if yf_news:
+                    for n in yf_news[:5]: combined_news += f"- {n.get('title')}\n"
+            except: pass
+            
+            # Googleニュース取得
+            try:
+                query = urllib.parse.quote(f"{ticker} ニュース")
+                feed = feedparser.parse(f"https://news.google.com/rss/search?q={query}&hl=ja&gl=JP&ceid=JP:ja")
+                for entry in feed.entries[:5]: combined_news += f"- {entry.title}\n"
+            except: pass
 
-            # 3. PDF解析
+            # PDF解析（文字数を制限してパンクを防止）
             pdf_content = ""
             if uploaded_file:
-                with st.spinner('PDFを解析中...'):
-                    reader = PdfReader(uploaded_file)
-                    for page in reader.pages:
-                        pdf_content += page.extract_text()
+                reader = PdfReader(uploaded_file)
+                for page in reader.pages[:10]: # 最初の10ページに限定
+                    pdf_content += page.extract_text()
+                pdf_content = pdf_content[:5000] # 最大5000文字に制限
 
-            # 4. 画面表示とレポート生成
             if not data.empty:
                 col1, col2 = st.columns([2, 1])
                 with col1:
-                    st.subheader(f"📈 株価トレンド ({company_name})")
                     st.line_chart(data['Close'])
-                    
-                    st.subheader("🌐 最新ニュース見出し")
-                    if combined_news:
-                        st.write(combined_news)
-                    else:
-                        st.write("自動ニュース取得なし。手動入力を活用してください。")
+                    st.write("【取得ニュース】\n", combined_news if combined_news else "なし")
 
-                # AIプロンプト
-                prompt = f"""
-                あなたは機関投資家レベルのアナリストです。銘柄 {company_name} ({ticker}) を分析してください。
-                【ニュース】\n{combined_news if combined_news else "なし"}
-                【手動入力材料】\n{manual_news if manual_news else "なし"}
-                【PDF IR資料】\n{pdf_content[:3000] if pdf_content else "なし"}
-                【最新株価データ】\n{data['Close'].tail(7).to_string()}
-
-                指示：
-                1. 現在の「買い材料」と「売り材料」を整理してください。
-                2. バイオ株等の場合は治験進捗や承認リスクを、他業種の場合は業績推移を重視してください。
-                3. 明確な「投資判断（買い・売り・様子見）」と、その具体的な理由を述べてください。
-                """
+                # AIレポート作成
+                prompt = f"""銘柄{ticker}を分析せよ。
+                ニュース:{combined_news}
+                手動入力:{manual_news}
+                PDF内容:{pdf_content}
+                株価推移:{data['Close'].tail(5).to_string()}
+                指示:最新材料を元に、買い・売り・様子見を根拠と共に判断せよ。"""
                 
-                with st.spinner('AIが精密レポートを作成中...'):
+                with st.spinner('分析中...'):
                     time.sleep(1)
                     response = model.generate_content(prompt)
-                    st.subheader("🤖 AI総合投資判断")
-                    st.info(response.text)
+                    
+                    # --- 安全な回答取得処理 ---
+                    if response.candidates and response.candidates[0].content.parts:
+                        st.subheader("🤖 AI総合投資判断")
+                        st.info(response.text)
+                    else:
+                        st.error(f"AIが回答を生成できませんでした。理由コード: {response.candidates[0].finish_reason}")
+                        st.warning("入力したニュースやPDFの内容が不適切、または長すぎる可能性があります。内容を減らして試してください。")
             else:
                 st.error("株価データが取得できません。")
         except Exception as e:
-            st.error(f"エラーが発生しました: {e}")
-
-st.caption("※Googleニュース連携・Yahoo多重取得・期間選択対応。最も安定した構成です。")
+            st.error(f"システムエラー: {e}")
