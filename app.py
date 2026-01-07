@@ -2,11 +2,12 @@ import streamlit as st
 import yfinance as yf
 import google.generativeai as genai
 from pypdf import PdfReader
+import pandas as pd
 
 # 1. ページ設定
-st.set_page_config(page_title="AI投資顧問・自動ニュース版", layout="wide")
+st.set_page_config(page_title="AI投資顧問・安定版", layout="wide")
 
-# パスワード認証（共通）
+# パスワード認証
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
@@ -21,7 +22,7 @@ def check_password():
     return False
 
 if check_password():
-    st.title("🏦 AI投資顧問・全業種/自動ニュース対応版")
+    st.title("🏦 AI投資顧問・安定版（モデル自動最適化）")
 
     with st.sidebar:
         st.header("1. 銘柄設定")
@@ -35,16 +36,23 @@ if check_password():
         code_only = ticker.split('.')[0]
         st.markdown(f"👉 [株探で最新情報を開く](https://kabutan.jp/stock/news?code={code_only})")
 
-    # メイン画面
-    if st.button("最新ニュース取得と総合分析を開始"):
+    if st.button("分析を開始"):
         try:
+            # AIの設定
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-1.5-flash")
             
-            # 株価とニュースの取得
+            # --- 【修正ポイント】利用可能な最新モデルを自動的に探す ---
+            with st.spinner('AIモデルを確認中...'):
+                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                # gemini-1.5-flash または gemini-2.0-flash を優先的に探し、なければ最初の一つを使う
+                target_model = next((m for m in available_models if "gemini-1.5-flash" in m), 
+                                    next((m for m in available_models if "gemini-2.0-flash" in m), available_models[0]))
+                model = genai.GenerativeModel(target_model)
+            
+            # データの取得
             stock = yf.Ticker(ticker)
             data = stock.history(period="1y")
-            news_data = stock.news # ここで最新ニュースを自動取得
+            news_data = stock.news 
             
             # PDF解析
             pdf_content = ""
@@ -54,43 +62,44 @@ if check_password():
                     pdf_content += page.extract_text()
 
             if not data.empty:
-                # ニュースをテキスト化
+                # ニュースを抽出
                 news_text = ""
                 for n in news_data[:8]:
-                    news_text += f"- タイトル: {n.get('title')}\n  要約: {n.get('summary', 'なし')}\n"
+                    news_text += f"- タイトル: {n.get('title')}\n"
 
                 col1, col2 = st.columns([2, 1])
                 with col1:
-                    st.subheader("📈 株価トレンド")
+                    st.subheader(f"📈 株価トレンド ({ticker})")
                     st.line_chart(data['Close'])
-                    st.subheader("📰 自動取得された最新ニュース")
-                    st.write(news_text if news_text else "ニュースは見つかりませんでした")
+                    st.subheader("📰 直近ニュース見出し")
+                    st.write(news_text if news_text else "ニュースなし")
 
                 # AIレポート作成
                 prompt = f"""
-                あなたはプロの投資アナリストです。
+                あなたはプロの投資アナリストです。銘柄 {ticker} について最新情報を統合してレポートしてください。
                 
-                【最新ニュース（自動取得）】
+                【最新ニュース見出し】
                 {news_text}
                 
-                【PDFから抽出した最新IR】
-                {pdf_content if pdf_content else "添付なし"}
+                【PDFから抽出したIRテキスト】
+                {pdf_content if pdf_content else "なし"}
 
-                【株価・財務データ要約】
-                {data.tail(5).to_string()}
+                【株価推移】
+                {data['Close'].tail(5).to_string()}
 
                 【指示】
-                1. 「自動取得ニュース」と「PDF資料」を照らし合わせ、最新の企業の状況を解説してください。
-                2. 特に、ニュースがポジティブかネガティブか、短期的・長期的な影響を分析してください。
-                3. 今後の株価に影響を与える「次のイベント（決算、新製品、承認など）」を推測してください。
-                4. 具体的な売買判断（買い・売り・ステイ）を根拠と共に提示してください。
+                1. 最新のIR/ニュースから、この企業の現在の状況（ポジティブかネガティブか）を整理してください。
+                2. 株価の動きとニュースに矛盾がないか分析してください。
+                3. 具体的な売買判断と、その根拠を提示してください。
                 """
                 
-                with st.spinner('情報を統合して分析中...'):
+                with st.spinner(f'モデル {target_model} を使用して分析中...'):
                     response = model.generate_content(prompt)
-                    st.subheader("🤖 AI総合分析レポート")
+                    st.subheader("🤖 AI分析レポート")
                     st.info(response.text)
             else:
-                st.error("データの取得に失敗しました。")
+                st.error("株価データの取得に失敗しました。")
         except Exception as e:
-            st.error(f"エラー: {e}")
+            st.error(f"エラーが発生しました: {e}")
+
+st.caption("※モデル名を自動取得する仕様に修正しました。")
