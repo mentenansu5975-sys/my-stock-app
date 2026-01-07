@@ -44,7 +44,7 @@ if check_password():
     if st.button("総合分析を開始"):
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-flash-latest')
             
             stock = yf.Ticker(ticker)
             data = stock.history(period=period_choice)
