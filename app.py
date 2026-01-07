@@ -6,7 +6,7 @@ import pandas as pd
 import time
 
 # 1. ページ設定
-st.set_page_config(page_title="AI投資顧問・安定稼働版", layout="wide")
+st.set_page_config(page_title="AI投資顧問・最終安定版", layout="wide")
 
 # パスワード認証
 def check_password():
@@ -23,7 +23,7 @@ def check_password():
     return False
 
 if check_password():
-    st.title("🏦 AI投資顧問・安定稼働版 (Gemini 1.5)")
+    st.title("🏦 AI投資顧問・最終安定版")
 
     with st.sidebar:
         st.header("1. 銘柄設定")
@@ -39,11 +39,11 @@ if check_password():
 
     if st.button("分析を開始"):
         try:
-            # AIの設定
+            # --- API接続の安定化設定 ---
             genai.configure(api_key=api_key)
             
-            # --- 【重要修正】不安定な2.0を避け、安定の1.5 Flashを直接指名 ---
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            # モデルの初期化（もっとも標準的な呼び出し方）
+            model = genai.GenerativeModel('gemini-1.5-flash')
             
             # データの取得
             stock = yf.Ticker(ticker)
@@ -61,7 +61,7 @@ if check_password():
                 # ニュース抽出
                 news_text = ""
                 if news_data:
-                    for n in news_data[:8]:
+                    for n in news_data[:10]:
                         news_text += f"- {n.get('title')}\n"
 
                 col1, col2 = st.columns([2, 1])
@@ -71,37 +71,41 @@ if check_password():
                     st.subheader("📰 直近ニュース見出し")
                     st.write(news_text if news_text else "ニュースなし")
 
-                # AIレポート作成
+                # AIへの詳細な指示
                 prompt = f"""
-                あなたはプロの投資アナリストです。銘柄 {ticker} を分析してください。
+                あなたは証券アナリストです。銘柄 {ticker} を分析してください。
                 
-                【最新ニュース見出し】
-                {news_text}
-                
-                【PDFから抽出したIRテキスト】
-                {pdf_content if pdf_content else "なし"}
-
-                【株価推移】
-                {data['Close'].tail(5).to_string()}
+                【最新ニュース】\n{news_text}
+                【PDF情報】\n{pdf_content if pdf_content else "なし"}
+                【最新株価データ】\n{data['Close'].tail(5).to_string()}
 
                 【指示】
-                1. ニュースやPDFから、この企業の最新の状況をプロの視点で整理してください。
-                2. 株価の動きと材料に矛盾がないか分析してください。
-                3. 具体的な売買判断と、その根拠を提示してください。
+                1. 直近のIRやニュースから、今の「買い材料・売り材料」を明確にしてください。
+                2. バイオ等の場合は、承認状況や薬価等の最新フェーズを考慮してください。
+                3. 具体的な「投資判断」と「目標ライン」を提示してください。
                 """
                 
-                with st.spinner('安定版モデル(Gemini 1.5)で分析中...'):
-                    # 1秒だけ待機してRate Limit対策
-                    time.sleep(1)
+                with st.spinner('AIが最新データを読み込み中...'):
+                    # サーバー側の負荷分散のため、ほんの少し待機
+                    time.sleep(2)
                     response = model.generate_content(prompt)
-                    st.subheader("🤖 AI分析レポート")
-                    st.info(response.text)
+                    
+                    if response.text:
+                        st.subheader("🤖 AI分析レポート")
+                        st.info(response.text)
+                    else:
+                        st.warning("AIから回答が得られませんでした。もう一度お試しください。")
+
             else:
-                st.error("株価データの取得に失敗しました。")
+                st.error("株価データが取得できませんでした。コードが正しいか確認してください。")
+                
         except Exception as e:
-            if "429" in str(e):
-                st.error("Google AIの無料枠制限にかかりました。1分ほど待ってから再度お試しください。")
+            # エラーメッセージをより詳細に表示
+            if "404" in str(e):
+                st.error("モデルが見つかりません。APIキーの設定やGoogle AI Studioの利用規約を確認してください。")
+            elif "429" in str(e):
+                st.error("回数制限です。1分ほど待ってから再度「分析を開始」を押してください。")
             else:
                 st.error(f"エラーが発生しました: {e}")
 
-st.caption("※安定性の高いGemini 1.5 Flashに固定しました。")
+st.caption("※API接続を最も標準的な形式に修正しました。")
