@@ -36,7 +36,7 @@ if check_password():
             
             # --- あなたのリストにある「確実に存在する最新モデル」を指定 ---
             # experimentalではない安定版の 2.0 flash を使用します
-            model = genai.GenerativeModel('gemini-2.0-flash')
+            model = genai.GenerativeModel('gemini-flash-latest')
             
             stock = yf.Ticker(ticker)
             data = stock.history(period="1y")
